@@ -1,0 +1,40 @@
+from sklearn.preprocessing import LabelEncoder
+from sklearn.svm import SVC
+import pickle
+
+#initilizing of embedding & recognizer
+embeddingFile = "C:/Users/SETTA PAIYAN/Documents/output/embedding.pickle"
+#New & Empty at initial
+recognizerFile = r"C:/Users/SETTA PAIYAN/Documents/output/recognizer.pickle"
+labelEncFile = r"C:/Users/SETTA PAIYAN/Documents\output/le.pickle"
+
+print("Loading face embeddings...")
+data = pickle.loads(open(embeddingFile, "rb").read())
+
+print("Encoding labels...")
+labelEnc = LabelEncoder()
+labels = labelEnc.fit_transform(data["names"])
+
+
+print("Training model...")
+recognizer = SVC(C=1.0, kernel="linear", probability=True)
+# Suppose you have embeddings from multiple people
+#data = {"embeddings": embeddings, "names": labels}
+
+# Check classes
+print("Unique labels:", set(labels))
+
+if len(set(labels)) > 1:
+    recognizer.fit(data["embeddings"], labels)
+else:
+    print("❌ Need at least two different people to train the model.")
+
+#recognizer.fit(data["embeddings"], labels)
+
+f = open(recognizerFile, "wb")
+f.write(pickle.dumps(recognizer))
+f.close()
+
+f = open(labelEncFile, "wb")
+f.write(pickle.dumps(labelEnc))
+f.close()
