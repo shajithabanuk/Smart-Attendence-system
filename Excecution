@@ -1,0 +1,302 @@
+#OLD###
+from collections import Iterable
+import numpy as np
+import imutils
+import pickle
+import time
+import cv2
+import csv
+
+
+def flatten(lis):
+    for item in lis:
+        if isinstance(item, Iterable) and not isinstance(item, str):
+            for x in flatten(item):
+                yield x
+        else:
+            yield item
+
+
+embeddingFile = "C:/Users/SETTA PAIYAN/Documents/output/embedding.pickle"
+embeddingModel = "C:/Users/SETTA PAIYAN/Documents/openface_nn4.small2.v1.t7.xml"
+recognizerFile = "C:/Users/SETTA PAIYAN/Documents/output/recognizer.pickle"
+labelEncFile = "C:/Users/SETTA PAIYAN/Documents/output/le.pickle"
+conf = 0.5
+
+print("[INFO] loading face detector...")
+prototxt = "C:/Users/SETTA PAIYAN/Documents/model/deploy.prototxt"
+model = "C:/Users/SETTA PAIYAN/Documents/model/res10_300x300_ssd_iter_140000.caffemodel"
+detector = cv2.dnn.readNetFromCaffe(prototxt, model)
+
+print("[INFO] loading face recognizer...")
+embedder = cv2.dnn.readNetFromTorch(embeddingModel)
+
+recognizer = pickle.loads(open(recognizerFile, "rb").read())
+le = pickle.loads(open(labelEncFile, "rb").read())
+
+Roll_Number = ""
+box = []
+print("[INFO] starting video stream...")
+cam = cv2.VideoCapture(0)
+time.sleep(1.0)
+
+while True:
+    _, frame = cam.read()
+    frame = imutils.resize(frame, width=600)
+    (h, w) = frame.shape[:2]
+    imageBlob = cv2.dnn.blobFromImage(
+        cv2.resize(frame, (300, 300)), 1.0, (300, 300),
+        (104.0, 177.0, 123.0), swapRB=False, crop=False)
+
+    detector.setInput(imageBlob)
+    detections = detector.forward()
+
+    for i in range(0, detections.shape[2]):
+
+        confidence = detections[0, 0, i, 2]
+
+        if confidence > conf:
+
+            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+            (startX, startY, endX, endY) = box.astype("int")
+
+            face = frame[startY:endY, startX:endX]
+            (fH, fW) = face.shape[:2]
+
+            if fW < 20 or fH < 20:
+                continue
+
+            faceBlob = cv2.dnn.blobFromImage(face, 1.0 / 255, (96, 96), (0, 0, 0), swapRB=True, crop=False)
+            embedder.setInput(faceBlob)
+            vec = embedder.forward()
+
+            preds = recognizer.predict_proba(vec)[0]
+            j = np.argmax(preds)
+            proba = preds[j]
+            name = le.classes_[j]
+            with open('C:/Users/SETTA PAIYAN/Documents/student.csv', 'r') as csvFile:
+                reader = csv.reader(csvFile)
+                for row in reader:
+                    box = np.append(box, row)
+                    print("Box",box)
+                    name = str(name)
+                    if name in row:
+                        person = str(row)
+                        print(name)
+                listString = str(box)
+##                print(box)
+                if name in listString:
+                    singleList = list(flatten(box))
+                    listlen = len(singleList)
+                    print("listlen",listlen)
+                    Index = singleList.index(name)
+                    print("Index",Index)
+                    name = singleList[Index]
+                    Roll_Number = singleList[Index + 1]
+                    print(Roll_Number)
+
+            text = "{} : {} : {:.2f}%".format(name, Roll_Number, proba * 100)
+            y = startY - 10 if startY - 10 > 10 else startY + 10
+            cv2.rectangle(frame, (startX, startY), (endX, endY),
+                          (0, 0, 255), 2)
+            cv2.putText(frame, text, (startX, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
+    cv2.imshow("Frame", frame)
+    key = cv2.waitKey(1) & 0xFF
+    if key == 27:
+        break
+
+cam.release()
+cv2.destroyAllWindows()
+
+import cv2
+import imutils
+import pickle
+import time
+import numpy as np
+import csv
+from datetime import datetime
+from collections import deque
+
+# -------------------- LIVENESS DETECTION (No MediaPipe) --------------------
+# Uses simple eye + mouth aspect ratio changes
+
+def get_aspect_ratio(eye_points):
+    A = np.linalg.norm(eye_points[1] - eye_points[5])
+    B = np.linalg.norm(eye_points[2] - eye_points[4])
+    C = np.linalg.norm(eye_points[0] - eye_points[3])
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+def run_liveness_check():
+    print("[INFO] Starting Liveness Detection (blink/mouth)...")
+
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+    mouth_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile.xml')
+
+    cap = cv2.VideoCapture(0)
+    blink_counter = 0
+    mouth_counter = 0
+    liveness_confirmed = False
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
+        for (x, y, w, h) in faces:
+            roi_gray = gray[y:y+h, x:x+w]
+            roi_color = frame[y:y+h, x:x+w]
+
+            eyes = eye_cascade.detectMultiScale(roi_gray, 1.1, 4)
+            mouth = mouth_cascade.detectMultiScale(roi_gray, 1.5, 20)
+
+            if len(eyes) == 0:
+                blink_counter += 1
+            if len(mouth) > 0:
+                mouth_counter += 1
+
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
+
+            # Check if we’ve seen enough blinking or mouth movement
+            if blink_counter > 3 or mouth_counter > 3:
+                print("✅ Liveness confirmed")
+                liveness_confirmed = True
+                cap.release()
+                cv2.destroyAllWindows()
+                return True
+
+        cv2.imshow("Liveness Detection", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    return liveness_confirmed
+
+
+# -------------------- FACE RECOGNITION --------------------
+
+def recognize_face():
+    print("[INFO] Starting Face Recognition...")
+
+    embeddingModel = "C:/Users/SETTA PAIYAN/Documents/openface_nn4.small2.v1.t7.xml"
+    recognizerFile = "C:/Users/SETTA PAIYAN/Documents/output/recognizer.pickle"
+    labelEncFile = "C:/Users/SETTA PAIYAN/Documents/output/le.pickle"
+    prototxt = "C:/Users/SETTA PAIYAN/Documents/model/deploy.prototxt"
+    model = "C:/Users/SETTA PAIYAN/Documents/model/res10_300x300_ssd_iter_140000.caffemodel"
+
+    det_conf = 0.5
+    recog_threshold = 0.8
+
+    detector = cv2.dnn.readNetFromCaffe(prototxt, model)
+    embedder = cv2.dnn.readNetFromTorch(embeddingModel)
+    recognizer = pickle.loads(open(recognizerFile, "rb").read())
+    le = pickle.loads(open(labelEncFile, "rb").read())
+
+    predictions = deque(maxlen=10)
+    cam = cv2.VideoCapture(0)
+    time.sleep(1.0)
+
+    while True:
+        ret, frame = cam.read()
+        if not ret:
+            break
+
+        frame = imutils.resize(frame, width=600)
+        (h, w) = frame.shape[:2]
+        imageBlob = cv2.dnn.blobFromImage(
+            cv2.resize(frame, (300, 300)),
+            1.0, (300, 300),
+            (104.0, 177.0, 123.0),
+            swapRB=False, crop=False
+        )
+
+        detector.setInput(imageBlob)
+        detections = detector.forward()
+
+        for i in range(0, detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+
+            if confidence > det_conf:
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+                face = frame[startY:endY, startX:endX]
+                (fH, fW) = face.shape[:2]
+
+                if fW < 20 or fH < 20:
+                    continue
+
+                faceBlob = cv2.dnn.blobFromImage(
+                    face, 1.0 / 255, (96, 96),
+                    (0, 0, 0), swapRB=True, crop=False
+                )
+                embedder.setInput(faceBlob)
+                vec = embedder.forward()
+
+                preds = recognizer.predict_proba(vec)[0]
+                j = np.argmax(preds)
+                proba = preds[j]
+                name = le.classes_[j] if proba > recog_threshold else "Unknown"
+
+                predictions.append(name)
+                final_name = max(set(predictions), key=predictions.count)
+
+                # Lookup Roll Number
+                roll_number = "Unknown"
+                if final_name != "Unknown":
+                    with open('C:/Users/SETTA PAIYAN/Documents/student.csv', 'r') as csvFile:
+                        reader = csv.reader(csvFile)
+                        for row in reader:
+                            if final_name in row:
+                                roll_number = row[1]
+                                break
+
+                text = f"{final_name} : {roll_number} : {proba * 100:.2f}%"
+                y = startY - 10 if startY - 10 > 10 else startY + 10
+                cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 0, 255), 2)
+                cv2.putText(frame, text, (startX, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
+
+                cv2.imshow("Face Recognition", frame)
+
+                if predictions.count(final_name) > 7 and final_name != "Unknown":
+                    cam.release()
+                    cv2.destroyAllWindows()
+                    return final_name, roll_number
+
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+
+    cam.release()
+    cv2.destroyAllWindows()
+    return None, None
+
+
+# -------------------- ATTENDANCE LOGGING --------------------
+
+def log_attendance(name, roll):
+    with open("attendance_log.csv", mode="a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([name, roll, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    print(f"📝 Attendance logged for {name} ({roll})")
+
+
+# -------------------- MAIN --------------------
+
+print("🔐 Starting Liveness Detection...")
+if run_liveness_check():
+    name, roll = recognize_face()
+    if name:
+        log_attendance(name, roll)
+        print(f"✅ Attendance marked for {name} ({roll})")
+    else:
+        print("⚠ Face not recognized.")
+else:
+    print("❌ Liveness check failed. Attendance not marked.")
+
+
