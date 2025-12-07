@@ -1,0 +1,282 @@
+import streamlit as st
+import cv2
+import mediapipe as mp
+import imutils
+import pickle
+import time
+import numpy as np
+import pandas as pd
+import os
+import csv
+from datetime import datetime
+from sklearn.preprocessing import LabelEncoder
+from sklearn.svm import SVC
+import matplotlib.pyplot as plt
+
+st.set_page_config(page_title="Smart Attendance System", layout="wide")
+st.title("Smart Attendance System")
+
+# -------------------- Global Settings --------------------
+mp_face_mesh = mp.solutions.face_mesh
+facemesh = mp_face_mesh.FaceMesh(refine_landmarks=True)
+embedding_model_path = "C:/Users/Adithya/OneDrive/Desktop/shaji/openface_nn4.small2.v1.t7"
+recognizer_file = "C:/Users/Adithya/OneDrive/Desktop/shaji/output/recognizer.pickle"
+label_enc_file = "C:/Users/Adithya/OneDrive/Desktop/shaji/output/le.pickle"
+face_detector_prototxt = "C:/Users/Adithya/OneDrive/Desktop/shaji/deploy.prototxt"
+face_detector_model = "C:/Users/Adithya/OneDrive/Desktop/shaji/res10_300x300_ssd_iter_140000.caffemodel"
+student_csv = "C:/Users/Adithya/OneDrive/Desktop/shaji/face detection project/student.csv"
+attendance_csv = "C:/Users/Adithya/OneDrive/Desktop/shaji/face detection project/attendance_log.csv"
+face_embeddings_file = "face_embeddings.pkl"
+
+# -------------------- Utility Functions --------------------
+def detect_blink(frame):
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = facemesh.process(rgb_frame)
+    if results.multi_face_landmarks:
+        for landmarks in results.multi_face_landmarks:
+            left_eye = landmarks.landmark[159].y - landmarks.landmark[145].y
+            right_eye = landmarks.landmark[386].y - landmarks.landmark[374].y
+            if left_eye < 0.01 and right_eye < 0.01:
+                return True
+    return False
+
+def run_liveness_check(timeout=15):
+    cap = cv2.VideoCapture(0)
+    liveness_confirmed = False
+    start_time = time.time()
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = imutils.resize(frame, width=600)
+        if detect_blink(frame):
+            liveness_confirmed = True
+            st.success("✅ Liveness confirmed!")
+            break
+        cv2.imshow("Liveness Detection - Press 'q' to quit", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        if time.time() - start_time > timeout:
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+    if not liveness_confirmed:
+        st.error("❌ Liveness not confirmed.")
+    return liveness_confirmed
+
+def recognize_face():
+    detector = cv2.dnn.readNetFromCaffe(face_detector_prototxt, face_detector_model)
+    embedder = cv2.dnn.readNetFromTorch(embedding_model_path)
+    recognizer = pickle.loads(open(recognizer_file, "rb").read())
+    le = pickle.loads(open(label_enc_file, "rb").read())
+
+    cam = cv2.VideoCapture(0)
+    name, roll_number = None, None
+
+    while True:
+        ret, frame = cam.read()
+        if not ret:
+            break
+        frame = imutils.resize(frame, width=600)
+        (h, w) = frame.shape[:2]
+        imageBlob = cv2.dnn.blobFromImage(
+            cv2.resize(frame, (300, 300)), 1.0, (300, 300),
+            (104.0, 177.0, 123.0), swapRB=False, crop=False
+        )
+        detector.setInput(imageBlob)
+        detections = detector.forward()
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            if confidence > 0.5:
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+                face = frame[startY:endY, startX:endX]
+                if face.shape[0] < 20 or face.shape[1] < 20:
+                    continue
+                faceBlob = cv2.dnn.blobFromImage(face, 1.0/255, (96, 96), (0,0,0), swapRB=True, crop=False)
+                embedder.setInput(faceBlob)
+                vec = embedder.forward()
+                preds = recognizer.predict_proba(vec)[0]
+                j = np.argmax(preds)
+                proba = preds[j]
+                name = le.classes_[j]
+
+                # Lookup roll number
+                roll_number = "Unknown"
+                if os.path.exists(student_csv):
+                    with open(student_csv, "r") as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if name in row:
+                                roll_number = row[1]
+                                break
+                text = f"{name} : {roll_number} : {proba*100:.2f}%"
+                cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
+                cv2.putText(frame, text, (startX, startY-10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,255,0), 2)
+                st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
+                cam.release()
+                cv2.destroyAllWindows()
+                return name, roll_number
+        break
+    cam.release()
+    cv2.destroyAllWindows()
+    return name, roll_number
+
+def log_attendance(name, roll):
+    if not os.path.exists(attendance_csv):
+        df = pd.DataFrame(columns=["Name", "Roll", "Date", "Time"])
+        df.to_csv(attendance_csv, index=False)
+    now = datetime.now()
+    df = pd.DataFrame([[name, roll, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")]],
+                      columns=["Name","Roll","Date","Time"])
+    df.to_csv(attendance_csv, mode="a", header=False, index=False)
+    st.success(f"📝 Attendance logged for {name} ({roll}) at {now.strftime('%H:%M:%S')}")
+
+def load_data():
+    if os.path.exists(attendance_csv):
+        df = pd.read_csv(attendance_csv)
+        df["DateTime"] = pd.to_datetime(df["Date"] + ' ' + df["Time"])
+        return df
+    return pd.DataFrame(columns=["Name","Roll","Date","Time","DateTime"])
+
+# -------------------- Student Registration --------------------
+st.subheader("➕ Register New Student")
+with st.expander("Register Student"):
+    new_name = st.text_input("Student Name")
+    new_roll = st.text_input("Roll Number")
+    if st.button("Capture Face & Register"):
+        if new_name and new_roll:
+            cap = cv2.VideoCapture(0)
+            embeddings = []
+            count = 0
+            st.info("Look at the camera... capturing 30 frames")
+            while count < 30:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                result = facemesh.process(rgb)
+                if result.multi_face_landmarks:
+                    face_points = []
+                    for lm in result.multi_face_landmarks[0].landmark:
+                        face_points.append([lm.x,lm.y,lm.z])
+                    embeddings.append(np.array(face_points).flatten())
+                    count += 1
+                    cv2.putText(frame, f"Captured {count}/30", (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0),2)
+                cv2.imshow("Capture Face", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            cap.release()
+            cv2.destroyAllWindows()
+            if len(embeddings)>0:
+                try:
+                    face_embeddings = pickle.load(open(face_embeddings_file,"rb"))
+                except:
+                    face_embeddings = {}
+                face_embeddings[(new_name,new_roll)] = np.mean(embeddings,axis=0)
+                pickle.dump(face_embeddings, open(face_embeddings_file,"wb"))
+                # Save to student.csv
+                with open(student_csv,"a",newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([new_name,new_roll])
+                st.success(f"✅ {new_name} ({new_roll}) registered successfully!")
+            else:
+                st.error("❌ No face detected. Try again.")
+
+# -------------------- Start Attendance --------------------
+if st.button("Start Attendance"):
+    st.info("Checking liveness... Please blink")
+    if run_liveness_check():
+        name, roll = recognize_face()
+        if name:
+            log_attendance(name, roll)
+        else:
+            st.error("⚠ Face not recognized.")
+
+# -------------------- Attendance Dashboard --------------------
+st.header("📊 Attendance Dashboard")
+
+def load_data():
+    if os.path.exists(attendance_csv):
+        df = pd.read_csv(attendance_csv)
+
+        # Ensure correct columns
+        if df.shape[1] == 4:
+            df.columns = ["Name", "Roll", "Date", "Time"]
+        elif df.shape[1] > 4:  # if extra columns, drop them
+            df = df.iloc[:, :4]
+            df.columns = ["Name", "Roll", "Date", "Time"]
+        else:
+            st.error("CSV format issue: Expected 4 columns (Name, Roll, Date, Time)")
+            return pd.DataFrame(columns=["Name", "Roll", "Date", "Time", "DateTime"])
+
+        # Create combined datetime
+        df["DateTime"] = pd.to_datetime(df["Date"].astype(str) + " " + df["Time"].astype(str), errors="coerce")
+        return df
+    else:
+        return pd.DataFrame(columns=["Name", "Roll", "Date", "Time", "DateTime"])
+
+
+# -------------------- Display Data --------------------
+data = load_data()
+
+if data.empty:
+    st.warning("⚠ No attendance records found yet.")
+else:
+    st.sidebar.header("Filters")
+
+    # Student filter
+    students = ["All"] + sorted(data["Name"].dropna().unique().tolist())
+    selected_student = st.sidebar.selectbox("Select Student", students)
+
+    # Date filter
+    selected_date = st.sidebar.date_input("Select Date", datetime.today())
+
+    # Apply filters
+    filtered_data = data.copy()
+    if selected_student != "All":
+        filtered_data = filtered_data[filtered_data["Name"] == selected_student]
+    if selected_date:
+        filtered_data = filtered_data[filtered_data["DateTime"].dt.date == selected_date]
+
+    # Show filtered records
+    st.subheader("📅 Filtered Attendance Records")
+    st.dataframe(filtered_data)
+
+    # Show all records
+    st.subheader("📝 Full Attendance Records")
+    st.dataframe(data)
+
+    # Download CSV
+    csv_bytes = filtered_data.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="⬇ Download Filtered CSV",
+        data=csv_bytes,
+        file_name="filtered_attendance.csv",
+        mime="text/csv"
+    )
+
+    # Attendance summary
+    summary = filtered_data.groupby("Name").size().reset_index(name="Days Present")
+    st.subheader("📌 Attendance Summary")
+    st.dataframe(summary)
+
+    # Chart
+    if not summary.empty:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors = [
+            "orange" if selected_student != "All" and name == selected_student else "skyblue"
+            for name in summary["Name"]
+        ]
+        bars = ax.barh(summary["Name"], summary["Days Present"], color=colors)
+
+        # Add labels
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width + 0.1, bar.get_y() + bar.get_height()/2,
+                    f"{int(width)}", va="center", fontsize=10)
+
+        ax.set_xlabel("Days Present")
+        ax.set_ylabel("Student")
+        ax.set_title("Attendance Count per Student")
+        st.pyplot(fig)
