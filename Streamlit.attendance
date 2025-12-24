@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="Smart Attendance System", layout="wide")
 st.title("Smart Attendance System")
 
-# -------------------- Global Settings --------------------
+# Global Settings
 mp_face_mesh = mp.solutions.face_mesh
 facemesh = mp_face_mesh.FaceMesh(refine_landmarks=True)
 embedding_model_path = "C:/Users/Adithya/OneDrive/Desktop/shaji/openface_nn4.small2.v1.t7"
@@ -28,7 +28,7 @@ student_csv = "C:/Users/Adithya/OneDrive/Desktop/shaji/face detection project/st
 attendance_csv = "C:/Users/Adithya/OneDrive/Desktop/shaji/face detection project/attendance_log.csv"
 face_embeddings_file = "face_embeddings.pkl"
 
-# -------------------- Utility Functions --------------------
+# Utility Functions 
 def detect_blink(frame):
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = facemesh.process(rgb_frame)
@@ -51,7 +51,7 @@ def run_liveness_check(timeout=15):
         frame = imutils.resize(frame, width=600)
         if detect_blink(frame):
             liveness_confirmed = True
-            st.success("✅ Liveness confirmed!")
+            st.success(" Liveness confirmed!")
             break
         cv2.imshow("Liveness Detection - Press 'q' to quit", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -61,7 +61,7 @@ def run_liveness_check(timeout=15):
     cap.release()
     cv2.destroyAllWindows()
     if not liveness_confirmed:
-        st.error("❌ Liveness not confirmed.")
+        st.error(" Liveness not confirmed.")
     return liveness_confirmed
 
 def recognize_face():
@@ -130,7 +130,7 @@ def log_attendance(name, roll):
     df = pd.DataFrame([[name, roll, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")]],
                       columns=["Name","Roll","Date","Time"])
     df.to_csv(attendance_csv, mode="a", header=False, index=False)
-    st.success(f"📝 Attendance logged for {name} ({roll}) at {now.strftime('%H:%M:%S')}")
+    st.success(f" Attendance logged for {name} ({roll}) at {now.strftime('%H:%M:%S')}")
 
 def load_data():
     if os.path.exists(attendance_csv):
@@ -140,7 +140,7 @@ def load_data():
     return pd.DataFrame(columns=["Name","Roll","Date","Time","DateTime"])
 
 # -------------------- Student Registration --------------------
-st.subheader("➕ Register New Student")
+st.subheader(" Register New Student")
 with st.expander("Register Student"):
     new_name = st.text_input("Student Name")
     new_roll = st.text_input("Roll Number")
@@ -179,11 +179,11 @@ with st.expander("Register Student"):
                 with open(student_csv,"a",newline="") as f:
                     writer = csv.writer(f)
                     writer.writerow([new_name,new_roll])
-                st.success(f"✅ {new_name} ({new_roll}) registered successfully!")
+                st.success(f" {new_name} ({new_roll}) registered successfully!")
             else:
-                st.error("❌ No face detected. Try again.")
+                st.error(" No face detected. Try again.")
 
-# -------------------- Start Attendance --------------------
+# Start Attendance 
 if st.button("Start Attendance"):
     st.info("Checking liveness... Please blink")
     if run_liveness_check():
@@ -191,10 +191,10 @@ if st.button("Start Attendance"):
         if name:
             log_attendance(name, roll)
         else:
-            st.error("⚠ Face not recognized.")
+            st.error("Face not recognized.")
 
 # -------------------- Attendance Dashboard --------------------
-st.header("📊 Attendance Dashboard")
+st.header(" Attendance Dashboard")
 
 def load_data():
     if os.path.exists(attendance_csv):
@@ -217,7 +217,7 @@ def load_data():
         return pd.DataFrame(columns=["Name", "Roll", "Date", "Time", "DateTime"])
 
 
-# -------------------- Display Data --------------------
+#  Display Data 
 data = load_data()
 
 if data.empty:
@@ -240,11 +240,11 @@ else:
         filtered_data = filtered_data[filtered_data["DateTime"].dt.date == selected_date]
 
     # Show filtered records
-    st.subheader("📅 Filtered Attendance Records")
+    st.subheader(" Filtered Attendance Records")
     st.dataframe(filtered_data)
 
     # Show all records
-    st.subheader("📝 Full Attendance Records")
+    st.subheader(" Full Attendance Records")
     st.dataframe(data)
 
     # Download CSV
@@ -258,7 +258,7 @@ else:
 
     # Attendance summary
     summary = filtered_data.groupby("Name").size().reset_index(name="Days Present")
-    st.subheader("📌 Attendance Summary")
+    st.subheader("Attendance Summary")
     st.dataframe(summary)
 
     # Chart
