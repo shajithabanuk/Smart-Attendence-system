@@ -118,7 +118,7 @@ import csv
 from datetime import datetime
 from collections import deque
 
-# -------------------- LIVENESS DETECTION (No MediaPipe) --------------------
+#  LIVENESS DETECTION (No MediaPipe)
 # Uses simple eye + mouth aspect ratio changes
 
 def get_aspect_ratio(eye_points):
@@ -164,7 +164,7 @@ def run_liveness_check():
 
             # Check if we’ve seen enough blinking or mouth movement
             if blink_counter > 3 or mouth_counter > 3:
-                print("✅ Liveness confirmed")
+                print(" Liveness confirmed")
                 liveness_confirmed = True
                 cap.release()
                 cv2.destroyAllWindows()
@@ -179,8 +179,7 @@ def run_liveness_check():
     return liveness_confirmed
 
 
-# -------------------- FACE RECOGNITION --------------------
-
+# FACE RECOGNITION
 def recognize_face():
     print("[INFO] Starting Face Recognition...")
 
@@ -277,26 +276,26 @@ def recognize_face():
     return None, None
 
 
-# -------------------- ATTENDANCE LOGGING --------------------
+# ATTENDANCE LOGGING 
 
 def log_attendance(name, roll):
     with open("attendance_log.csv", mode="a", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([name, roll, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-    print(f"📝 Attendance logged for {name} ({roll})")
+    print(f" Attendance logged for {name} ({roll})")
 
 
-# -------------------- MAIN --------------------
+#  MAIN 
 
-print("🔐 Starting Liveness Detection...")
+print("Starting Liveness Detection...")
 if run_liveness_check():
     name, roll = recognize_face()
     if name:
         log_attendance(name, roll)
-        print(f"✅ Attendance marked for {name} ({roll})")
+        print(f"Attendance marked for {name} ({roll})")
     else:
-        print("⚠ Face not recognized.")
+        print(" Face not recognized.")
 else:
-    print("❌ Liveness check failed. Attendance not marked.")
+    print("Liveness check failed. Attendance not marked.")
 
 
