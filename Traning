@@ -27,7 +27,7 @@ print("Unique labels:", set(labels))
 if len(set(labels)) > 1:
     recognizer.fit(data["embeddings"], labels)
 else:
-    print("❌ Need at least two different people to train the model.")
+    print(" Need at least two different people to train the model.")
 
 #recognizer.fit(data["embeddings"], labels)
 
